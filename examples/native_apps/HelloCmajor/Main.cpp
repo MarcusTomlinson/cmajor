@@ -12,7 +12,7 @@ int main()
 
     std::string code;
 
-    int parallelBranches = 500;
+    int parallelBranches = 200;
     int branchNodes = 20;
 
     code += R"(
@@ -68,7 +68,7 @@ graph Test [[ main ]]
 }
 
 processor Passthrough
-    {
+{
     input stream int in;
     output stream int out;
 
