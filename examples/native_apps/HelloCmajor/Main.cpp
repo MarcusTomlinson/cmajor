@@ -12,7 +12,7 @@ int main()
 
     std::string code;
 
-    int parallelBranches = 200;
+    int parallelBranches = 500;
     int branchNodes = 20;
 
     code += R"(
