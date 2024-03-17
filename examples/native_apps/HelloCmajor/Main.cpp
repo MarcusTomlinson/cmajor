@@ -1,130 +1,130 @@
-/*
-    Tiny "hello world" for creating a Cmajor performer and pushing
-    some data through it..
-*/
-
-#undef CHOC_ASSERT
-#define CHOC_ASSERT(x) assert(x)
-
-#include <iostream>
-#include <memory>
 #include "../../../include/cmajor/API/cmaj_Engine.h"
-#include "../../../include/choc/audio/choc_Oscillators.h"
+#include <fstream>
+#include <iostream>
 
-static constexpr auto code = R"(
-
-processor Gain
+int main()
 {
-    input stream float in;
-    output stream float out;
-
-    void main()
-    {
-        loop
-        {
-            out <- in * 0.5f;
-            advance();
-        }
-    }
-}
-
-)";
-
-//==============================================================================
-int main ()
-{
-    std::cout << "Engine types available: "
-              << choc::text::joinStrings (cmaj::Engine::getAvailableEngineTypes(), ", ") << std::endl;
-
     auto engine = cmaj::Engine::create();
 
     cmaj::DiagnosticMessageList messages;
 
     cmaj::Program program;
 
-    if (! program.parse (messages, "internal", code))
+    std::string code;
+
+    int componentCount = 10000;
+
+    code += R"(
+graph Test [[ main ]]
+{
+    input stream int in;
+    output stream int out;
+)";
+
+    for ( int i = 0; i < componentCount; ++i )
     {
-        std::cout << "Failed to parse!" << std::endl
-                  << messages.toString() << std::endl;
+        code += R"(
+    node passthrough)" +
+                std::to_string( i ) + " = Passthrough;";
+    }
+
+    code += "\n";
+
+    code += R"(
+    connection
+    {
+        in -> passthrough0;)";
+
+    for ( int i = 1; i < componentCount; ++i )
+    {
+        code += R"(
+        passthrough)" +
+                std::to_string( i - 1 ) + " -> passthrough" + std::to_string( i ) + ";";
+    }
+
+    code += R"(
+        passthrough)" +
+            std::to_string( componentCount - 1 ) + " -> out;";
+
+    code += R"(
+    }
+}
+
+processor Passthrough
+    {
+    input stream int in;
+    output stream int out;
+
+    void main()
+    {
+        loop
+        {
+            out <- in;
+            advance();
+        }
+    }
+}
+)";
+
+    std::ofstream out( "test.cmajor" );
+    out << code;
+    out.close();
+
+    auto begin = std::chrono::high_resolution_clock::now();
+
+    if ( !program.parse( messages, "internal", code ) )
+    {
         return 1;
     }
 
-    engine.setBuildSettings (cmaj::BuildSettings()
-                                .setFrequency (44100)
-                                .setSessionID (123456));
+    engine.setBuildSettings( cmaj::BuildSettings().setFrequency( 44100 ).setSessionID( 123456 ) );
 
-    if (! engine.load (messages, program, {}, {}))
+    if ( !engine.load( messages, program, {}, {} ) )
     {
-        std::cout << "Failed to load!" << std::endl
-                  << messages.toString() << std::endl;
-
         return 1;
     }
 
-    std::cout << "Loaded!" << std::endl;
+    auto inputHandle = engine.getEndpointHandle( "in" );
+    auto outputHandle = engine.getEndpointHandle( "out" );
 
-    std::cout << "Input endpoints:" << std::endl
-              << engine.getInputEndpoints().getDescription() << std::endl
-              << std::endl
-              << "Output endpoints:" << std::endl
-              << engine.getOutputEndpoints().getDescription() << std::endl
-              << std::endl;
-
-    auto inputHandle  = engine.getEndpointHandle ("in");
-    auto outputHandle = engine.getEndpointHandle ("out");
-
-    std::cout << "input handle: " << inputHandle << std::endl
-              << "output handle: " << outputHandle << std::endl
-              << std::endl;
-
-    if (! engine.link (messages))
+    if ( !engine.link( messages ) )
     {
-        std::cout << "Failed to link!" << std::endl
-                  << messages.toString() << std::endl;
-
         return 1;
     }
+
+    auto end = std::chrono::high_resolution_clock::now();
+
+    auto diff_ms = std::chrono::duration_cast<std::chrono::microseconds>( end - begin ).count() / 1000.0;
+    std::cout << "Construction, 10000 Components: " << diff_ms << "ms\n";
+
+    int inputData = 0;
+    auto outputBlock = choc::buffer::InterleavedBuffer<int>( 1, 1 );
 
     auto performer = engine.createPerformer();
+    performer.setBlockSize( 1 );
 
-    std::cout << "Linked!" << std::endl;
+    const int iterationCount = 10000;
 
-    uint32_t framesPerBlock = 8,
-             totalFramesToRender = 30,
-             framesDone = 0;
+    begin = std::chrono::high_resolution_clock::now();
 
-    // Generates a buffer with a sinewave that we can send into our input endpoint..
-    auto inputData = choc::oscillator::createInterleavedSine<float> ({ 1u, totalFramesToRender }, 1.0, 50.0);
-
-    while (framesDone < totalFramesToRender)
+    for ( int i = 0; i < iterationCount; ++i )
     {
-        auto framesThisBlock = std::min ((totalFramesToRender - framesDone), framesPerBlock);
-
-        std::cout << "Rendering frame: " << framesDone
-                  << " framesToRender: " << framesThisBlock << std::endl;
-
-        performer.setBlockSize (framesThisBlock);
-
-        // Write the next block of input data to our input endpoint
-        auto inputBlock = inputData.getFrameRange ({ framesDone, framesDone + framesThisBlock });
-        performer.setInputFrames (inputHandle, inputBlock);
-
-        // The magic happens in here!
+        ++inputData;
+        performer.setInputFrames( inputHandle, &inputData, 1 );
         performer.advance();
 
-        // Fetch the rendered block of frames from our output endpoint
-        auto outputBlock = choc::buffer::InterleavedBuffer<float> (1, framesThisBlock); // 1 = number of channels
-        performer.copyOutputFrames (outputHandle, outputBlock);
-
-        // Now we'll print the samples to prove they exist...
-        for (uint32_t frame = 0; frame < outputBlock.getNumFrames(); ++frame)
-            std::cout << framesDone + frame << ": " << inputBlock.getSample (0, frame)
-                      << " => " << outputBlock.getSample (0, frame) << std::endl;
-
-        std::cout << std::endl;
-
-        framesDone += framesThisBlock;
+        performer.copyOutputFrames( outputHandle, outputBlock );
+        if ( outputBlock.getSample( 0, 0 ) != inputData )
+        {
+            std::cout << "Graph failed\n";
+            return 1;
+        }
     }
+
+    end = std::chrono::high_resolution_clock::now();
+
+    diff_ms = std::chrono::duration_cast<std::chrono::microseconds>( end - begin ).count() / 1000.0;
+    std::cout << "10000 Components: " << diff_ms / iterationCount << "ms\n";
 
     return 0;
 }

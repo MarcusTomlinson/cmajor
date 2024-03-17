@@ -1,0 +1,13 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Test",
+            "request": "launch",
+            "preLaunchTask": "Build (Debug)",
+            "program": "${workspaceFolder}/build/debug/examples/native_apps/HelloCmajor",
+            "cwd": "${workspaceFolder}/build/debug/examples/native_apps/",
+            "type": "lldb"
+        }
+    ]
+}
