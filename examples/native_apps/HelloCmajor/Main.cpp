@@ -12,7 +12,8 @@ int main()
 
     std::string code;
 
-    int componentCount = 10000;
+    int parallelBranches = 500;
+    int branchNodes = 20;
 
     code += R"(
 graph Test [[ main ]]
@@ -21,30 +22,46 @@ graph Test [[ main ]]
     output stream int out;
 )";
 
-    for ( int i = 0; i < componentCount; ++i )
+    for ( int i = 0; i < parallelBranches; ++i )
     {
-        code += R"(
+        for ( int j = 0; j < branchNodes; ++j )
+        {
+            code += R"(
     node passthrough)" +
-                std::to_string( i ) + " = Passthrough;";
+                    std::to_string( i ) + "_" + std::to_string( j ) + " = Passthrough;";
+        }
     }
 
     code += "\n";
 
     code += R"(
     connection
-    {
-        in -> passthrough0;)";
+    {)";
 
-    for ( int i = 1; i < componentCount; ++i )
+    for ( int i = 0; i < parallelBranches; ++i )
+    {
+        code += R"(
+        in -> passthrough)" +
+                std::to_string( i ) + "_0;";
+    }
+
+    for ( int i = 0; i < parallelBranches; ++i )
+    {
+        for ( int j = 1; j < branchNodes; ++j )
+        {
+            code += R"(
+        passthrough)" +
+                    std::to_string( i ) + "_" + std::to_string( j - 1 ) + " -> passthrough" + std::to_string( i ) + "_" +
+                    std::to_string( j ) + ";";
+        }
+    }
+
+    for ( int i = 0; i < parallelBranches; ++i )
     {
         code += R"(
         passthrough)" +
-                std::to_string( i - 1 ) + " -> passthrough" + std::to_string( i ) + ";";
+                std::to_string( i ) + "_" + std::to_string( branchNodes - 1 ) + " -> out;";
     }
-
-    code += R"(
-        passthrough)" +
-            std::to_string( componentCount - 1 ) + " -> out;";
 
     code += R"(
     }
@@ -74,6 +91,7 @@ processor Passthrough
 
     if ( !program.parse( messages, "internal", code ) )
     {
+        std::cout << "Failed to parse!" << std::endl << messages.toString() << std::endl;
         return 1;
     }
 
@@ -114,7 +132,7 @@ processor Passthrough
         performer.advance();
 
         performer.copyOutputFrames( outputHandle, outputBlock );
-        if ( outputBlock.getSample( 0, 0 ) != inputData )
+        if ( outputBlock.getSample( 0, 0 ) != inputData * parallelBranches )
         {
             std::cout << "Graph failed\n";
             return 1;
